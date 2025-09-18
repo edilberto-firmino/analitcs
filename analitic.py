@@ -1,10 +1,13 @@
-# analitic.py (versão robusta de leitura e relatório PDF)
+# analitic.py (versão robusta de leitura e relatório PDF + WhatsApp)
 import re
 import unicodedata
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import whatsapp_sender
+import whatsapp_disparos
+from selenium import webdriver
 from io import BytesIO, StringIO
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.pagesizes import A4
@@ -88,7 +91,6 @@ for file in uploaded_files:
         except:
             text = raw.decode("latin-1", errors="replace")
 
-        # tenta autodetectar separador (engine='python')
         try:
             df = pd.read_csv(StringIO(text), sep=None, engine='python', low_memory=False)
         except Exception:
@@ -106,6 +108,7 @@ for file in uploaded_files:
         email_col = find_column(cols, ["e-mail", "email", "e_mail", "cliente_email", "mail"])
         nome_col = find_column(cols, ["nome", "name", "cliente"])
         ref_col = find_column(cols, ["referencia", "referência", "reference", "ref", "id_transacao"])
+        telefone_col = find_column(cols, ["telefone", "celular", "phone", "whatsapp", "contato"])
 
         missing = []
         if data_col is None: missing.append("Data")
@@ -115,25 +118,24 @@ for file in uploaded_files:
             st.warning(f"Arquivo {file.name} ignorado — faltando: {', '.join(missing)}")
             continue
 
-        # montar df padronizado (sem sobrescrever cabeçalhos originais)
+        # montar df padronizado
         df2 = pd.DataFrame()
         df2["Data_Pedido"] = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True)
         df2["Qtd_bilhetes"] = df[qtd_col].apply(parse_int)
         df2["Valor"] = df[valor_col].apply(parse_currency)
         df2["E-mail"] = df[email_col].astype(str).str.strip() if email_col else np.nan
         df2["Nome"] = df[nome_col].astype(str).str.strip() if nome_col else np.nan
+        df2["Telefone"] = df[telefone_col].astype(str).str.strip() if telefone_col else np.nan
         df2["Referência_externa_do_pagamento"] = df[ref_col].astype(str).str.strip() if ref_col else np.nan
         df2["arquivo_origem"] = file.name
 
-        valid_before = len(df2)
         df2 = df2.dropna(subset=["Data_Pedido"])
-        valid_after = len(df2)
-        if valid_after == 0:
+        if df2.empty:
             st.warning(f"Arquivo {file.name} não possui datas válidas — ignorado.")
             continue
 
         dfs.append(df2)
-        st.success(f"{file.name} — registros válidos: {valid_after}")
+        st.success(f"{file.name} — registros válidos: {len(df2)}")
 
     except Exception as e:
         st.error(f"Erro ao processar {file.name}: {e}")
@@ -272,3 +274,17 @@ def gerar_pdf_bytes():
 if st.button("📥 Gerar/baixar PDF"):
     pdf_buf = gerar_pdf_bytes()
     st.download_button("Clique para baixar o PDF", data=pdf_buf, file_name="relatorio_vendas_v3.pdf", mime="application/pdf")
+
+
+# ---------- (restante do código de agrupamentos, gráficos, análises e PDF mantém igual) ----------
+
+# ---------- Integração com WhatsApp ----------
+# if st.button("📲 Abrir painel WhatsApp"):
+#     whatsapp_sender.whatsapp_ui(df_total)
+
+
+
+
+if st.button("📲 Disparo de WhatsApp (via QR)"):
+    mensagem_padrao = st.text_area("Mensagem a enviar:", "Olá {nome}, obrigado pela compra! 🎉")
+    whatsapp_disparos.enviar_whatsapp(df_total, mensagem_padrao)
